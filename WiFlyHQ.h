@@ -244,6 +244,7 @@ public:
     
     virtual size_t write(uint8_t byte);
     virtual int read();
+    virtual int readBufTimeout(char* buf, int size, uint16_t timeout=WIFLY_DEFAULT_TIMEOUT);	///< read data into the buffer until it is full or the next character takes more than timeout millis to arrive
     virtual int available();
     virtual void flush();
     virtual int peek();
@@ -291,7 +292,8 @@ public:
 	const char *user,
 	const char *password,
 	const char *filename);
-
+    boolean startCommand();
+    boolean finishCommand();
   private:
     void init(void);
 
@@ -317,8 +319,7 @@ public:
     boolean checkPrompt(const char *str);
     int getResponse(char *buf, int size, uint16_t timeout=WIFLY_DEFAULT_TIMEOUT);
     boolean readTimeout(char *ch, uint16_t timeout=WIFLY_DEFAULT_TIMEOUT);
-    boolean startCommand();
-    boolean finishCommand();
+
     char *getopt(int opt, char *buf, int size);
     uint32_t getopt(int opt, uint8_t base=DEC);
     boolean setopt(const prog_char *cmd, const char *buf=NULL, const __FlashStringHelper *buf_P=NULL);
