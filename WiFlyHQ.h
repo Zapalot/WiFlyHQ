@@ -294,6 +294,8 @@ public:
 	const char *filename);
     boolean startCommand();
     boolean finishCommand();
+	boolean setopt(const prog_char *cmd, const char *buf=NULL, const __FlashStringHelper *buf_P=NULL);
+    boolean setopt(const prog_char *opt, const uint32_t value, uint8_t base=DEC);
   private:
     void init(void);
 
@@ -322,8 +324,7 @@ public:
 
     char *getopt(int opt, char *buf, int size);
     uint32_t getopt(int opt, uint8_t base=DEC);
-    boolean setopt(const prog_char *cmd, const char *buf=NULL, const __FlashStringHelper *buf_P=NULL);
-    boolean setopt(const prog_char *opt, const uint32_t value, uint8_t base=DEC);
+
     boolean getres(char *buf, int size);
 
     boolean checkStream(const prog_char *str, boolean peeked);

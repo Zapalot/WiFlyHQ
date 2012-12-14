@@ -85,6 +85,7 @@ extern void *__brkval;
 #define PSTR(s) (__extension__({static prog_char __c[] PROGMEM = (s); &__c[0];})) 
 
 /* Request and response strings in PROGMEM */
+
 const prog_char req_GetIP[] PROGMEM = "get ip\r";
 const prog_char resp_IP[] PROGMEM = "IP=";
 const prog_char resp_NM[] PROGMEM = "NM=";
@@ -125,7 +126,8 @@ const prog_char resp_Reboot[] PROGMEM = "Reboot=";
 const prog_char resp_Join[] PROGMEM = "Join=";
 const prog_char resp_Rate[] PROGMEM = "Rate=";
 const prog_char resp_Power[] PROGMEM = "TxPower=";
-
+const prog_char req_Scan[] PROGMEM = "scan\r";
+const prog_char resp_Scan[] PROGMEM = "Scan:";
 /* Request and response for specific info */
 static struct {
     const prog_char *req;
@@ -2247,9 +2249,10 @@ boolean WiFly::setBaud(uint32_t baud)
     simple_utoa(baud, 10, buf, sizeof(buf));
     DPRINT(F("set baud ")); DPRINT(buf); DPRINT("\n\r");
 
-    /* Go into command mode, since "set uart instant" will exit command mode */
+    /* Go into command mode, since "set uart instant" will exit command mode */ 
+	//edit: we now use permanent setting for baud rates
     startCommand();
-    if (setopt(PSTR("set u i"), buf)) {
+    if (setopt(PSTR("set u b"), buf)) {
 	//serial->begin(baud);		// Sketch will need to do this
 	return true;
     }
