@@ -47,6 +47,7 @@
  * 			 a failure rather than relying on a timeout.
  * 			 Added setJoin() and getJoin() function for access to the wlan join parameter.
  * 			 Refactored getres() to use the new multiMatch_P() function.
+ * 0.4		20-Dec-2012 By Felix Bonowski. Added an easy setup function. Lots of minor changes.
  *
  */
 
@@ -101,6 +102,16 @@
 #define WIFLY_MODE_WPA			0	
 #define WIFLY_MODE_WEP			1
 
+//Debug out
+
+#ifndef TRACE
+#define TRACE(x) do { if (DEBUG) Serial.print( x); } while (0)
+#endif
+#ifndef TRACELN
+#define TRACELN(x) do { if (DEBUG) Serial.println( x); } while (0)
+#endif
+
+
 class WFDebug : public Stream {
 public:
     WFDebug();
@@ -120,7 +131,237 @@ private:
 class WiFly : public Stream {
 public:
     WiFly();
-    
+	/// a complete setup of all functionality for UDP. Templated with the type of the Serial you want to use.
+	template <class serialType> void setupForUDP(
+		serialType* wiFlySerial,
+		const uint32_t newSerialSpeed,
+		const bool tryOtherSpeeds,	///< should we try some other baudrates if the currently selected one fails?
+		const char* SSID,
+		const char* password,
+		const char* deviceID,      ///< for identifacation in the network
+		const char* localIP,       ///< a string with numbers, if 0, we will use dhcp to get an ip
+		const uint16_t localPort,
+		const char* remoteHost,
+		const uint16_t remotePort,
+		const bool printTrace	///< show debug information on Serial
+	){
+		bool DEBUG=printTrace;
+	  TRACE((F("Free memory: ")));
+	  TRACELN((this->getFreeMemory()));
+
+	  boolean saveAndReboot=false;
+	  char buf[32];
+
+	  //try out some different serial speeds until we find one that is working...
+	  const uint32_t serialSpeeds[]={
+		newSerialSpeed,9600, 19200, 38400, 57600, 115200        };
+
+	  int speedIndex=0;
+	  int maxSpeedIndex;
+	  if(tryOtherSpeeds){
+		maxSpeedIndex=6;
+	  }
+	  else{ 
+		maxSpeedIndex=1;
+	  }; 
+	  boolean baudrateFound=false;
+	  TRACELN(F("Trying to connect to this"));
+
+	  for (speedIndex=0;speedIndex<maxSpeedIndex;speedIndex++){
+		TRACE(F("Connecting to this using Baudrate:"));
+		TRACELN(serialSpeeds[speedIndex]);
+		wiFlySerial->begin(serialSpeeds[speedIndex]);
+		if(this->begin(wiFlySerial, &Serial)){
+		  baudrateFound=true;
+		  break;
+		}
+	  }
+
+	  if(!baudrateFound){
+		TRACELN(F("Could not find working Baud rate to connect to this"));
+		return;
+	  }
+	  else{
+		TRACE(F("Working Baud rate is "));
+		TRACELN(serialSpeeds[speedIndex]);
+	  }
+
+	  this->startCommand();  //made this public to avoid the annoing waiting times
+	  if(serialSpeeds[speedIndex]!=newSerialSpeed){
+		TRACE(F("Setting new baud rate to "));
+		TRACELN(newSerialSpeed);
+		//set the new this baud rate
+		this->setBaud(newSerialSpeed);
+		TRACE(F("Saving this config."));
+		this->save();
+		TRACE(F("Rebooting this->.."));
+		this->reboot();
+		wiFlySerial->begin(newSerialSpeed);
+		saveAndReboot=false;
+	  }
+	  //set
+
+	  this->getDeviceID(buf, sizeof(buf));
+	  if(strcmp(buf, deviceID) != 0){
+		TRACE(F("Changing device ID to "));
+		TRACELN(deviceID);
+		this->setDeviceID(deviceID);
+		saveAndReboot=true;
+	  }
+
+	  //setup dhcp or an ip..
+	  if(localIP==0){
+		TRACELN(F("No fixed IP provided"));
+		if(this->getDHCPMode()!=WIFLY_DHCP_MODE_ON){
+		  TRACELN(F("Enabling DHCP"));
+
+		  this->enableDHCP();
+		  saveAndReboot=true;
+		}
+	  }
+	  else{
+		if(this->getDHCPMode()!=WIFLY_DHCP_MODE_OFF){
+		  TRACE(F("Disabling DHCP; setting IP to "));
+		  TRACELN(localIP);
+		  this->disableDHCP();
+		  this->setIP(localIP);
+		  saveAndReboot=true;
+		}
+		//set ip only if necessary...
+		this->getIP(buf,sizeof(buf));  
+		if(strcmp(buf, localIP) != 0){
+		  TRACE(F("Setting IP to "));
+		  TRACELN(localIP);
+		  this->setIP(localIP);
+		  saveAndReboot=true;
+		}
+	  }
+
+	  //receive packets at this port...
+	  if(this->getPort()!=localPort){
+		TRACE(F("Setting listen Port to "));
+		TRACELN(localPort);
+		this->setPort( localPort);	// Send UPD packets to this server and port
+		saveAndReboot=true;
+	  }
+
+	  //2 millis seems to be the minimum for 9600 baud
+	  if (this->getFlushTimeout() != 2) {
+		TRACE(F("Setting Flush timeout to 2ms "));
+		this->setFlushTimeout(2);
+		saveAndReboot=true;
+	  }
+
+	  //set SSID only if necessary...
+	  this->getSSID(buf,sizeof(buf));  
+	  if(strcmp(buf, SSID) != 0){
+		TRACE(F("Setting SSID to "));
+		TRACELN((SSID));
+		this->setSSID(SSID);
+
+		TRACE(F("Setting Wifi Passwd to "));
+		TRACELN((password));
+		this->setPassphrase(password);
+		saveAndReboot=true;
+	  }
+
+	  this->save();
+	  this->finishCommand();
+	  if(saveAndReboot==true){
+		this->reboot();
+		wiFlySerial->begin(newSerialSpeed);
+	  }
+
+
+	  this->startCommand();
+	  //set SSID only if necessary...
+	  this->getSSID(buf,sizeof(buf));  
+	  if(strcmp(buf, SSID) != 0){
+		this->setSSID(SSID);
+		this->setPassphrase(password);
+	  }
+
+
+	  /* Join wifi network if not already associated */
+	  if (!this->isAssociated()) {
+		//  if(true){
+		/* Setup the this to connect to a wifi network */
+		TRACELN(F("Joining network"));
+		this->setSSID(SSID);
+
+		if (this->join()) {
+		  //  this->setopt("set w a ", 1);
+		  //if (this->join(SSID, password, localIP==0, this_MODE_WEP)) {
+		  TRACELN(F("Joined wifi network"));
+		} 
+		else {
+		  TRACELN(F("Failed to join wifi network"));
+		}
+	  } 
+	  else {
+		TRACELN(F("Already joined network"));
+	  }
+
+	  //enable auto join
+	  this->setJoin(WIFLY_WLAN_JOIN_AUTO);
+	  /* Setup for UDP packets, sent automatically */
+	  this->setIpProtocol(WIFLY_PROTOCOL_UDP);
+	  this->setHost(remoteHost, remotePort);	// Send UPD packets to this server and port
+
+		TRACE("MAC: ");
+	  TRACELN(this->getMAC(buf, sizeof(buf)));
+	  TRACE("IP: ");
+	  TRACELN(this->getIP(buf, sizeof(buf)));
+	  TRACE("Netmask: ");
+	  TRACELN(this->getNetmask(buf, sizeof(buf)));
+	  TRACE("Gateway: ");
+	  TRACELN(this->getGateway(buf, sizeof(buf)));
+	  TRACE("Listen Port:");
+	  TRACELN(this->getPort());
+	  this->finishCommand();
+	  TRACELN(F("this setup finished"));
+
+	};
+	
+	void printStatusInfo(){
+	  this->startCommand();
+	  char buf[32];
+	  /* Ping the gateway */
+	  this->getGateway(buf, sizeof(buf));
+
+	  Serial.print("ping ");
+	  Serial.print(buf);
+	  Serial.print(" ... ");
+	  if (this->ping(buf)) {
+		Serial.println("ok");
+	  } 
+	  else {
+		Serial.println("failed");
+	  }
+
+	  Serial.print("ping google.com ... ");
+	  if (this->ping("google.com")) {
+		Serial.println("ok");
+	  } 
+	  else {
+		Serial.println("failed");
+	  }
+
+	  Serial.print("MAC: ");
+	  Serial.println(this->getMAC(buf, sizeof(buf)));
+	  Serial.print("IP: ");
+	  Serial.println(this->getIP(buf, sizeof(buf)));
+	  Serial.print("Netmask: ");
+	  Serial.println(this->getNetmask(buf, sizeof(buf)));
+	  Serial.print("Gateway: ");
+	  Serial.println(this->getGateway(buf, sizeof(buf)));
+	  Serial.print("Listen Port:");
+	  Serial.println(this->getPort());
+	  this->finishCommand();
+
+	}
+	
+	
     boolean begin(Stream *serialdev, Stream *debugPrint = NULL);
     
     char *getSSID(char *buf, int size);
